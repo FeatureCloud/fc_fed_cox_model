@@ -32,7 +32,7 @@ def root():
     elif step == 'setup_master':
         current_app.logger.info('[WEB] Before rendering start_client.html')
         if redis_get('master'):
-            return render_template('start_master.html')
+            return render_template('setup_master.html')
         else:
             return render_template('setup.html')
     elif step=='setup_slave':
@@ -49,7 +49,8 @@ def root():
     elif step == 'final':
         result = redis_get('result')
         result_html = result.to_html(classes='data',header='true')
-        return render_template('final.html',tables=[result_html])
+        c_index = redis_get('c_index')
+        return render_template('final.html',tables=[result_html],c_index=c_index)
     else:
         return render_template('calculations.html')
 
@@ -112,6 +113,17 @@ def run():
                 redis_set('max_steps',int(max_steps))
                 redis_set('precision',float(precision))
 
+                penalization = result['penalization']
+                l1_ratio = result['l1_ratio']
+
+                redis_set('penalization',float(penalization))
+                redis_set('l1_ratio',float(l1_ratio))
+
+                current_app.logger.info( f'[WEB] max_steps: {int(max_steps)}' )
+                current_app.logger.info( f'[WEB] precision: {float(precision)}' )
+                current_app.logger.info( f'[WEB] penalization: {float(penalization)}' )
+                current_app.logger.info( f'[WEB] l1_ratio: {float(l1_ratio)}' )
+
                 if (duration_col is None or event_col is None):
                     current_app.logger.info( '[WEB] No duration or event column specified ' )
                     return render_template('empty.html')
@@ -123,11 +135,10 @@ def run():
 
                     current_app.logger.info('[WEB] Duration and event columns successfully uploaded')
 
-                    #next_step() # -> send_to_slave
                     redis_set('step','send_to_slave')
                     redis_set('available',True)
-                    return render_template('calculations.html')
 
+                    return render_template('calculations.html')
 
             else:
                 current_app.logger.info('[WEB] No File was uploaded')
@@ -150,7 +161,6 @@ def run():
                 redis_set( 'data', data )
                 current_app.logger.info( '[WEB] File successfully uploaded and processed' )
 
-                #next_step() # -> preprocessing
                 redis_set('step','preprocessing')
                 redis_set('master_step','master_norm')
                 redis_set('slave_step','slave_norm')
@@ -166,11 +176,11 @@ def run():
         # TODO weiterleitung zu route /
         result = redis_get( 'results' )
         result_html = result.to_html( classes='data', header='true' )
-        return render_template( 'final.html', tables=[ result_html ] )
+        c_index = redis_get( 'c_index' )
+        return render_template( 'final.html', tables=[ result_html ], c_index=c_index )
     else:
         current_app.logger.info(f'[WEB] POST request to /run in step "{cur_step}" -> wait calculations not finished')
         return render_template('calculations.html')
-
 
 @web_bp.route('/download_results')
 def download_results():
@@ -192,6 +202,7 @@ def create_figure(params_,standard_errors_):
     fig = Figure()
     axis = fig.add_subplot(1,1,1)
     axis = plot(params_, standard_errors_, ax=axis )
+    fig.tight_layout()
     return fig
 
 def plot(params_, standard_errors_, ax=None, **errorbar_kwargs):
@@ -252,6 +263,6 @@ def plot(params_, standard_errors_, ax=None, **errorbar_kwargs):
 
     ax.set_yticks( yaxis_locations )
     ax.set_yticklabels( tick_labels )
-    ax.set_title("Visual representation of the coefficients of the federated model (log(hazard ratio))")
+    ax.set_title("Visual representation of the coefficients of the federated model")
 
     return ax

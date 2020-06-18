@@ -10,6 +10,26 @@
         "margin: 20px"
         }
     </style>
+
+
+    <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
+    <script>
+        function hg_no(){
+            document.getElementById('penalties').style.display ='none';
+        }
+        function hg_yes(){
+            document.getElementById('penalties').style.display = 'block';
+        }
+
+        function lasso_ridge(){
+            document.getElementById('elastic').style.display = 'none';
+        }
+
+        function elastic_net(){
+            document.getElementById('elastic').style.display = 'block';
+        }
+
+    </script>
 </head>
 <body style="margin: 50px">
 
@@ -18,7 +38,10 @@
 <h2 style="margin-bottom: 30px">Client</h2>
 
 <form action="run" method="post" enctype=multipart/form-data>
+
     <div class="form-group" style="width: 50%">
+
+
         <h3 style="margin-bottom: 15px">Upload Data </h3>
         <div class="input-group">
             <input type="file" name="file" class="form-control-file input-group-prepend" id="file_input">
@@ -29,10 +52,36 @@
             <label for="csv_file">CSV File</label>
             <input type="radio" name="file_type" id="csv_file" value="csv" checked>
         </div>
-
         <div class="input-group">
             <label for="tsv_file">TSV File</label>
             <input type="radio" name="file_type" id="tsv_file" value="tsv">
+        </div>
+
+
+        <h3 style="margin-bottom: 15px">High-Dimensional Data:</h3>
+        <div>
+            <label><input type="radio" name="hg_radio" value="hg_no" onclick="hg_no()" checked> no</label>
+            <label><input type="radio" name="hg_radio" value="hg_yes" onclick="hg_yes()"> yes</label>
+        </div>
+
+        <div id="penalties" class="hide">
+            <h3 style="margin-bottom: 15px">Select L1, L2 or Elastic Net Penalized Regression</h3>
+            <div>
+            <label><input type="radio" name="penalty" value="lasso" onclick="lasso_ridge()"> Lasso regression</label>
+            <label><input type="radio" name="penalty" value="ridge" onclick="lasso_ridge()"> Ridge regression</label>
+            <label><input type="radio" name="penalty" value="elastic_net" onclick="elastic_net()"> Elastic net regression</label>
+            </div>
+        </div>
+
+        <div id="elastic" class="hide">
+            <div class="input-group">
+                <label for="penalization">Penalizer:</label>
+                <input type="text" name="penalization" id="penalization" value="0.0">
+            </div>
+            <div class="input-group">
+                <label for="l1_ratio">L1_ratio:</label>
+                <input type="text" name="l1_ratio" id="l1_ratio" value="0.0">
+            </div>
         </div>
 
         <h3 style="margin-bottom: 15px">Select Duration and Event Columns</h3>
