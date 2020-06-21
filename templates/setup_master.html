@@ -58,10 +58,8 @@
             document.getElementById('ifElastic').style.visibility = "visible";
         } else document.getElementById('ifElastic').style.visibility = "hidden";
         }
-
-
-
     </script>
+
 </head>
 
 
@@ -157,25 +155,24 @@
 
 
                         <h4 style="margin-top:20px">5) High-Dimensional Data:</h4>
-                            <label>No</label><input type="radio" onclick="javascript:high_dimensional_check();" name="hg_radio" id="hg_no" checked>
-                            <label>Yes</label><input type="radio" onclick="javascript:high_dimensional_check();" name="hg_radio" id="hg_yes">
+                            <label>No</label><input type="radio" onclick="javascript:high_dimensional_check();" name="hg_radio" id="hg_no" value="no" checked>
+                            <label>Yes</label><input type="radio" onclick="javascript:high_dimensional_check();" name="hg_radio" id="hg_yes" value="yes">
 
 
                         <div id="ifYes" style="visibility:hidden">
                             <h4 style="margin-top:20px">6) L1, L2 or Elastic Net Penalized Regression</h4>
                             <div>
                                 <label for="lasso">Lasso Regression</label>
-                                <input type="radio" name="penalty" id="lasso" onclick="javascript:elastic_net_check();" checked>
+                                <input type="radio" name="penalty" id="lasso" value="lasso" onclick="javascript:elastic_net_check();" checked>
                                 <label for="ridge">Ridge Regression</label>
-                                <input type="radio" name="penalty" id="ridge" onclick="javascript:elastic_net_check();">
+                                <input type="radio" name="penalty" id="ridge" value="ridge" onclick="javascript:elastic_net_check();">
                                 <label for="elastic_net">Elastic Net Regression</label>
-                                <input type="radio" name="penalty" id="elastic_net"
-                                       onclick="javascript:elastic_net_check();">
+                                <input type="radio" name="penalty" id="elastic_net" value="elastic_net" onclick="javascript:elastic_net_check();">
                             </div>
                             <h4 style="margin-top:20px">7) Tuning Parameter: </h4>
                             <div>
-                                <label for="penalization_en">Penalizer:</label>
-                                <input type="text" name="penalization_en" id="penalization_en">
+                                <label for="penalization">Penalizer:</label>
+                                <input type="text" name="penalization" id="penalization">
                             </div>
                             <div id="ifElastic" style="visibility:hidden">
                             <label for="l1_ratio">L1_ratio:</label>

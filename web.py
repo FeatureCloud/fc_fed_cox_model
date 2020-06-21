@@ -42,13 +42,31 @@ def root():
             duration_col = redis_get('duration_col')
             event_col = redis_get('event_col')
             covariates = redis_get('covariates')
-            covariates = ','.join(covariates)
-            return render_template('start_client.html',max_steps = max_steps, precision = precision, duration_col = duration_col, event_col = event_col, covariates = covariates)
+            covariates = ', '.join(covariates)
+            l1_ratio = redis_get('l1_ratio')
+            penalization = redis_get('penalization')
+            if penalization==0:
+                penalizer = 'no'
+            else:
+                if l1_ratio==0:
+                    penalizer = 'lasso penalized regression with penalizer: '+str(penalization)
+                elif l1_ratio==1:
+                    penalizer = 'ridge penalized regression with penalizer: '+str(penalization)
+                else:
+                    penalizer = 'elastic net penalized regression with penalizer: '+str(penalization) + ' and l1_ratio: '+str(l1_ratio)
+
+            return render_template('setup_client.html',max_steps = max_steps, precision = precision, duration_col = duration_col, event_col = event_col, covariates = covariates, penalizer=penalizer)
         else:
             return render_template('calculations.html')
     elif step == 'final':
         result = redis_get('result')
-        result_html = result.to_html(classes='data',header='true')
+        penalization = redis_get('penalization')
+        # if a variable selection method was executed, just the covariates with p-values<=0.05 are shown in the final.html site
+        if (penalization==0): result_html = result.to_html(classes='data',header='true')
+        else:
+            result = result[ result[ 'p' ] <= 0.05 ]
+            result_html = result.to_html( classes='data', header='true' )
+
         c_index = redis_get('c_index')
         return render_template('final.html',tables=[result_html],c_index=c_index)
     else:
@@ -88,6 +106,7 @@ def run():
     if cur_step == 'start':
         current_app.logger.info('[WEB] POST request to /run in step "start" -> wait setup not finished')
         return 'Wait until setup is done'
+
     elif cur_step == 'setup_master':
         if redis_get('master'):
             current_app.logger.info('[WEB] POST request to /run in step "setup" -> read data')
@@ -113,8 +132,19 @@ def run():
                 redis_set('max_steps',int(max_steps))
                 redis_set('precision',float(precision))
 
-                penalization = result['penalization']
-                l1_ratio = result['l1_ratio']
+                high_dimensional = result['hg_radio']
+                if high_dimensional=='no':
+                    l1_ratio = 0.0
+                    penalization=0.0
+                elif high_dimensional=='yes':
+                    penalty = result['penalty']
+                    if penalty=='lasso':
+                        l1_ratio=0.0
+                    elif penalty=='ridge':
+                        l1_ratio=1.0
+                    elif penalty=='elastic_net':
+                        l1_ratio=result['l1_ratio']
+                    penalization = result['penalization']
 
                 redis_set('penalization',float(penalization))
                 redis_set('l1_ratio',float(l1_ratio))
@@ -162,8 +192,8 @@ def run():
                 current_app.logger.info( '[WEB] File successfully uploaded and processed' )
 
                 redis_set('step','preprocessing')
-                redis_set('master_step','master_norm')
-                redis_set('slave_step','slave_norm')
+                redis_set('master_step','master_intersect')
+                redis_set('slave_step','slave_intersect')
                 preprocessing()
                 return render_template( 'calculations.html' )
 
@@ -174,10 +204,18 @@ def run():
     elif cur_step == 'final':
         current_app.logger.info('[WEB] POST request to /run in step "final" -> GET request to "/"')
         # TODO weiterleitung zu route /
-        result = redis_get( 'results' )
-        result_html = result.to_html( classes='data', header='true' )
+        result = redis_get( 'result' )
+        penalization = redis_get( 'penalization' )
+        # if a variable selection method was executed, just the covariates with p-values<=0.05 are shown in the final.html site
+        if (penalization == 0):
+            result_html = result.to_html( classes='data', header='true' )
+        else:
+            result = result[ result[ 'p' ] <= 0.05 ]
+            result_html = result.to_html( classes='data', header='true' )
+
         c_index = redis_get( 'c_index' )
         return render_template( 'final.html', tables=[ result_html ], c_index=c_index )
+
     else:
         current_app.logger.info(f'[WEB] POST request to /run in step "{cur_step}" -> wait calculations not finished')
         return render_template('calculations.html')

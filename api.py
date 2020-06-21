@@ -68,6 +68,10 @@ def status():
     current_app.logger.info(f'[API] converging: {converging}')
     current_app.logger.info(f'[API] available: {available}')
 
+    if cur_step=='local_norm':
+        # (slave and master: available = False)
+        local_normalization()
+
     if cur_step=='normalization':
         # (slave and master: available = False)
         normalization()
@@ -109,6 +113,18 @@ def data():
 
 
         if master:
+
+            # get covariates of slaves to find intersection
+            if master_step == 'master_intersect':
+                current_app.logger.info( '[API] /data master_intersect POST request ' )
+                local_covariates_json = request.get_json(True)['covariates']
+                local_covariates = pd.read_json(local_covariates_json,typ='series',orient='records')
+                global_cov = redis_get('global_cov')
+                global_cov.append(local_covariates)
+                redis_set('global_cov',global_cov)
+                global_covariates_intersection()
+                return jsonify(True)
+
             # get local mean and standard deviation of slaves
             if master_step=='master_norm':
                 current_app.logger.info( '[API] /data master_norm POST request ' )
@@ -177,17 +193,32 @@ def data():
                 event_col = upload_info[3]
                 covariates_json = upload_info[4]
                 covariates = json.loads(covariates_json)
-
+                l1_ratio = upload_info[5]
+                penalization = upload_info[6]
 
                 redis_set('max_steps',max_steps)
                 redis_set('precision',precision)
                 redis_set('duration_col',duration_col)
                 redis_set('event_col',event_col)
                 redis_set('covariates',covariates)
+                redis_set('l1_ratio',l1_ratio)
+                redis_set('penalization',penalization)
+
                 redis_set('available',False)
                 redis_set('step','setup_slave')
 
                 return jsonify(True)
+
+            # get intersected covariates from master
+            elif slave_step == 'slave_intersect':
+                current_app.logger.info( '[API] /data slave_intersect POST request ' )
+                covariates_json = request.get_json(True)['intersected_covariates']
+                covariates = pd.read_json(covariates_json,typ='series',orient='records')
+                redis_set('intersected_covariates',covariates)
+                redis_set('step','local_norm')
+                redis_set( 'slave_step', 'slave_norm' )
+                redis_set( 'master_step', 'master_norm' )
+                return (jsonify(True))
 
             # get global mean and standard deviation from master for further calculations
             elif slave_step == 'slave_norm':
@@ -250,6 +281,9 @@ def data():
                 precision = redis_get('precision')
                 duration_col = redis_get('duration_col')
                 event_col = redis_get('event_col')
+                l1_ratio = redis_get('l1_ratio')
+                penalization = redis_get('penalization')
+
                 data = redis_get('data')
                 covariates = data.columns.values
                 index = np.argwhere( covariates == duration_col )
@@ -259,12 +293,25 @@ def data():
                 redis_set('covariates',covariates)
                 covariates_json = covariates.tolist()
                 covariates_json = json.dumps(covariates_json)
+
+
                 redis_set('available',False)
                 redis_set('step','preprocessing')
-                redis_set( 'master_step', 'master_norm' )
-                redis_set( 'slave_step', 'slave_norm' )
+                redis_set( 'master_step', 'master_intersect' )
+                redis_set( 'slave_step', 'slave_intersect' )
                 preprocessing()
-                return jsonify({'upload_info':(max_steps,precision,duration_col,event_col,covariates_json)})
+                return jsonify({'upload_info':(max_steps,precision,duration_col,event_col,covariates_json,l1_ratio,penalization)})
+
+            # send the intersection of all covariates to slaves
+            elif master_step == 'master_intersect':
+                current_app.logger.info( '[API] /data master_norm GET request ' )
+                intersected_covariates = redis_get('intersected_covariates')
+                covariates_json = intersected_covariates.to_json()
+                redis_set('step','local_norm')
+                redis_set( 'available', False )
+                redis_set( 'slave_step', 'slave_norm' )
+                redis_set( 'master_step', 'master_norm' )
+                return jsonify({'intersected_covariates':(covariates_json)})
 
             # send global mean and standard deviation to slaves
             elif master_step == 'master_norm':
@@ -331,6 +378,14 @@ def data():
                 return jsonify({'result':(result_json,c_index)})
 
         else:
+
+            # send covariates to master to check the intersection of the covariates
+            if slave_step == 'slave_intersect':
+                current_app.logger.info( '[API] /data slave_intersect GET request ' )
+                covariates = redis_get('covariates')
+                redis_set( 'available', False )
+                return jsonify({'covariates':(covariates.to_json())})
+
             # send local mean and standard deviation to master
             if slave_step == 'slave_norm':
                 current_app.logger.info( '[API] /data slave_norm GET request ' )
@@ -398,6 +453,7 @@ def setup():
     master = setup_params['master']
     redis_set('master', master)
     if master:
+        redis_set('global_cov',[])
         redis_set('global_norm', [])
         redis_set('global_init',[])
         redis_set( 'global_stat', [])
@@ -453,11 +509,58 @@ def preprocessing():
 
         current_app.logger.info( '[API] Preprocessing is done (X,T,E saved)' )
 
-        redis_set('step','local_norm')
-        local_normalization()
+        redis_set('step','find_intersection')
+        get_local_covariates()
+
+def get_local_covariates():
+    """
+    get the name of the covariates of the local dataframe and send to the master
+    """
+    current_app.logger.info( '[API] run get_local_covariates' )
+    X = redis_get( 'X' )
+    duration_col = redis_get('duration_col')
+    event_col = redis_get('event_col')
+    covariates = X.columns.values
+    index = np.argwhere( covariates == duration_col )
+    covariates = np.delete( covariates, index )
+    index = np.argwhere( covariates == event_col )
+    covariates = np.delete( covariates, index )
+    redis_set('covariates',pd.Series(covariates))
+    current_app.logger.info(f'[API] covariates: {covariates}')
+    if redis_get( 'master' ):
+        global_cov = redis_get( 'global_cov' )
+        global_cov.append(pd.Series(covariates))
+        redis_set( 'global_cov', global_cov )
+        global_covariates_intersection()
+
+    else:
+        redis_set( 'covariates', pd.Series(covariates) )
+        redis_set( 'available', True)
+
+def global_covariates_intersection():
+    current_app.logger.info( '[API] run global_covariates_intersection' )
+    global_cov = redis_get( 'global_cov' )
+    nr_clients = redis_get( 'nr_clients' )
+    np.set_printoptions( precision=30 )
+    if len( global_cov ) == nr_clients:
+        current_app.logger.info( '[API] The data of all clients has arrived' )
+        intersect_covariates = pd.Series()
+
+        for cov in global_cov:
+            if intersect_covariates.empty:
+                intersect_covariates = cov
+            else:
+                intersect_covariates = pd.Series(np.intersect1d(intersect_covariates,cov))
+
+        current_app.logger.info( f'[API] intersection of covariates: {intersect_covariates}' )
+        redis_set( 'intersected_covariates', intersect_covariates )
+        redis_set( 'available', True ) # send the intersected covariates to slaves
+    else:
+        current_app.logger.info( '[API] Not the data of all clients has been send to the master' )
 
 def local_normalization():
     """
+    Udate the dataset which is used for the cox regression using the intersection of covariates and
     calculate mean and standard deviation of the local dataframe and send to the master
 
     """
@@ -467,6 +570,12 @@ def local_normalization():
         current_app.logger.info('[API] X is None')
         return None
     else:
+        # update X
+        intersected_covariates = redis_get('intersected_covariates')
+        X = X[intersected_covariates.tolist()]
+        redis_set('X',X)
+
+        # start normalization
         norm_mean = X.mean(0)
         norm_std = X.std(0)
 
