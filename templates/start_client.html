@@ -13,40 +13,48 @@
 </head>
 <body style="margin: 50px">
 
+<div>
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-danger" role="alert">
+                        <span>{{ message }}</span>
+                    </div>
+
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block body %}{% endblock %}
+</div>
+
 <h1 style="color:#256BEE"><u>Federated Cox Proportional Hazard Model</u></h1>
 
 <h2 style="margin-bottom: 30px">Client</h2>
 
 <form action="run" method="post" enctype=multipart/form-data>
     <div class="form-group" style="width: 50%">
-        <h3 style="margin-bottom: 15px">Criteria for File Upload </h3>
-        <ul>
-            <li>Duration Column has to be named: {{duration_col}} </li>
-            <li>Event Column has to be named: {{event_col}} </li>
-            <li>Covariates have to be named: {{covariates}}</li>
-        </ul>
 
-        <h3 style="margin-bottom: 15px">Upload Data </h3>
-        <div class="input-group">
-            <input type="file" name="file" class="form-control-file input-group-prepend" id="file_input">
-        </div>
+        <h4><u> Criteria for Data Upload:</u></h4>
+            <h4 style="margin-top:20px">1) Duration Column has to be named: </h4> {{duration_col}}
+            <h4 style="margin-top:20px">2) Event Column has to be named: </h4> {{event_col}}
+            <h4 style="margin-top:20px">3) Covariates have to be named: </h4> {{covariates}}
+            <h4 style="margin-top:20px">4) Intersection: </h4> {{intersect}}
 
-        <h3 style="margin-bottom: 15px">Select Upload File Type </h3>
-        <div class="input-group">
-            <label for="csv_file">CSV File</label>
-            <input type="radio" name="file_type" id="csv_file" value="csv" checked>
-        </div>
 
-        <div class="input-group">
-            <label for="tsv_file">TSV File</label>
-            <input type="radio" name="file_type" id="tsv_file" value="tsv">
-        </div>
+        <h4><u> Cox Regression Parameter:</u></h4>
+            <li>Maximum Number of Iterations:{{max_steps}}</li>
+            <li>Precision: {{precision}}</li>
+            <li>High-dimensional data: {{penalizer}}</li>
 
-        <h3 style="margin-bottom: 15px">Cox Regression will be run with: </h3>
-        <ul>
-            <li>Maximum Iterations: {{max_steps}} </li>
-            <li>Convergence Criteria: {{precision}} </li>
-        </ul>
+
+        <h4><u> Client Setup:</u></h4>
+        <h4 style="margin-top:20px;">1) Upload Data </h4>
+        <input type="file" name="file" class="form-control-file input-group-prepend" id="file_input">
+        <h4 style="margin-top:20px">2) File Type </h4>
+        <label for="csv_file">CSV File</label>
+        <input type="radio" name="file_type" id="csv_file" value="csv"checked>
+        <label for="tsv_file">TSV File</label>
+        <input type="radio" name="file_type" id="tsv_file" value="tsv">
 
 
 

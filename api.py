@@ -1,5 +1,5 @@
 import pickle
-
+import time
 import queue as q
 import redis
 import rq
@@ -19,13 +19,9 @@ from autograd import elementwise_grad
 pool = redis.BlockingConnectionPool(host='localhost', port=6379, db=0, queue_class=q.Queue)
 r = redis.Redis(connection_pool=pool)
 
-## PROCEDURE OF THE ALGORITHM
-#steps = ['setup_master','send_to_slave','setup_slave', 'preprocessing','local_norm', 'send_to_master', 'global_norm', 'normalization','local_init','send_to_master','global_init','local_stat','send_to_master','update_beta','send_model_parameter','summary','send_to_slaves','final']
-
 ## INITIALIZATION OF SOME PARAMETER
 r.set('available', pickle.dumps(False))
 r.set('step', pickle.dumps('start'))
-#r.set('step_id', pickle.dumps(0))
 
 r.set('local_norm', pickle.dumps(True))
 r.set('global_norm', pickle.dumps(True))
@@ -35,7 +31,6 @@ r.set('global_init', pickle.dumps(True))
 
 r.set('local_stat', pickle.dumps(True))
 r.set('global_stat', pickle.dumps(True))
-
 
 r.set('local_c', pickle.dumps(True))
 r.set('global_c', pickle.dumps(True))
@@ -68,20 +63,61 @@ def status():
     current_app.logger.info(f'[API] converging: {converging}')
     current_app.logger.info(f'[API] available: {available}')
 
-    if cur_step=='local_norm':
+    if cur_step=="local_variance":
         # (slave and master: available = False)
-        local_normalization()
+        local_variance_calculation()
 
-    if cur_step=='normalization':
+    elif cur_step=='normalization':
         # (slave and master: available = False)
         normalization()
 
     elif cur_step=='local_stat':
         # (slave and master: available = False)
+        if (redis_get('master')):
+            if (redis_get('iteration')==0):
+                start_time = redis_get( 'start_time' )
+                stop_time = time.time()
+                current_app.logger.info(
+                    f'[WEB] time for initializing the statistics, model parameter, step_size and so...: {stop_time- start_time}' )
+                redis_set( 'start_time', stop_time )
+                redis_set('iteration_time',stop_time)
+                redis_set('update_time',stop_time)
+            else:
+                start_time = redis_get('iteration_time')
+                stop_time = time.time()
+                current_app.logger.info(
+                    f'[WEB] time for one iteration: {stop_time- start_time}' )
+                redis_set( 'iteration_time', stop_time )
+
+                start_time = redis_get( 'update_time' )
+                stop_time = time.time()
+                current_app.logger.info(
+                    f'[WEB] time sending updated model parameter: {stop_time- start_time}' )
+                redis_set( 'update_time', stop_time )
+
         local_statistics_calculation()
 
     elif cur_step=='local_c_index':
         # (slave and master: available = False)
+
+        if (redis_get('master')):
+            start_time = redis_get( 'iteration_time' )
+            stop_time = time.time()
+            current_app.logger.info(
+                f'[WEB] time for last iteration: {stop_time- start_time}' )
+
+            start_time = redis_get( 'update_time' )
+            stop_time = time.time()
+            current_app.logger.info(
+                f'[WEB] time sending updated model parameter (last iteration): {stop_time- start_time}' )
+            redis_set( 'update_time', stop_time )
+
+            start_time = redis_get( 'start_time' )
+            stop_time = time.time()
+            current_app.logger.info(
+                f'[WEB] time for calculating the model parameter (all iterations): {stop_time- start_time}' )
+            redis_set( 'start_time', stop_time )
+
         local_concordance_calculation()
         redis_set( 'master_step', 'master_final' )
         redis_set( 'slave_step', 'slave_final' )
@@ -103,14 +139,10 @@ def data():
     step = redis_get('step')
 
     current_app.logger.info('[API] /data request')
-
     current_app.logger.info(f'[API] step: {step}')
 
     # data will be pulled from flask object request as json format
     if request.method == 'POST':
-        # print data which will be pulled
-        current_app.logger.info( request.get_json( True ) )
-
 
         if master:
 
@@ -119,25 +151,36 @@ def data():
                 current_app.logger.info( '[API] /data master_intersect POST request ' )
                 local_covariates_json = request.get_json(True)['covariates']
                 local_covariates = pd.read_json(local_covariates_json,typ='series',orient='records')
-                global_cov = redis_get('global_cov')
-                global_cov.append(local_covariates)
-                redis_set('global_cov',global_cov)
+                global_cov = redis_get( 'global_cov' )
+                global_cov.append( local_covariates )
+                redis_set( 'global_cov', global_cov )
                 global_covariates_intersection()
                 return jsonify(True)
 
-            # get local mean and standard deviation of slaves
+            # get local mean of slaves
             if master_step=='master_norm':
                 current_app.logger.info( '[API] /data master_norm POST request ' )
-                global_norm = redis_get('global_norm')
-                data_append = request.get_json(True)['local_norm']
-                mean_json = data_append[0]
-                std_json = data_append[1]
-                n = data_append[2] # number of samples
-                mean = pd.read_json(mean_json,typ='series',orient='records')
-                std = pd.read_json(std_json,typ='series',orient='records')
-                global_norm.append((mean,std,n))
-                redis_set('global_norm', global_norm)
-                global_normalization()
+                norm_step = redis_get("norm_step")
+
+                if norm_step=="mean":
+                    global_norm = redis_get('global_norm')
+                    data_append = request.get_json(True)['local_norm']
+                    mean_json = data_append[0]
+                    n = data_append[1] # number of samples
+                    mean = pd.read_json(mean_json,typ='series',orient='records')
+                    global_norm.append((mean,n))
+                    redis_set('global_norm', global_norm)
+                    global_mean_calculation()
+
+                elif norm_step=="variance":
+                    global_norm = redis_get('global_norm')
+                    data_append = request.get_json( True )[ 'local_norm' ]
+                    variance_json = data_append
+                    mean = pd.read_json( variance_json, typ='series', orient='records' )
+                    global_norm.append( (mean) )
+                    redis_set( 'global_norm', global_norm )
+                    global_variance_calculation()
+
                 return jsonify(True)
 
             # get initialized local statistics of slaves
@@ -195,16 +238,19 @@ def data():
                 covariates = json.loads(covariates_json)
                 l1_ratio = upload_info[5]
                 penalization = upload_info[6]
+                intersection = upload_info[7]
 
                 redis_set('max_steps',max_steps)
                 redis_set('precision',precision)
                 redis_set('duration_col',duration_col)
                 redis_set('event_col',event_col)
-                redis_set('covariates',covariates)
+                redis_set('master_covariates',covariates)
                 redis_set('l1_ratio',l1_ratio)
                 redis_set('penalization',penalization)
+                redis_set('intersection',intersection)
 
                 redis_set('available',False)
+
                 redis_set('step','setup_slave')
 
                 return jsonify(True)
@@ -215,22 +261,31 @@ def data():
                 covariates_json = request.get_json(True)['intersected_covariates']
                 covariates = pd.read_json(covariates_json,typ='series',orient='records')
                 redis_set('intersected_covariates',covariates)
-                redis_set('step','local_norm')
                 redis_set( 'slave_step', 'slave_norm' )
                 redis_set( 'master_step', 'master_norm' )
+
+                redis_set('step','local_mean')
+                local_mean_calculation()
+
                 return (jsonify(True))
 
-            # get global mean and standard deviation from master for further calculations
+            # get global mean from master for further calculations
             elif slave_step == 'slave_norm':
                 current_app.logger.info( '[API] /data slave_norm POST request ' )
-                mean_std = request.get_json(True)['mean_std']
-                mean_json = mean_std[ 0 ]
-                std_json = mean_std[ 1 ]
-                mean = pd.read_json( mean_json, typ='series', orient='records' )
-                std = pd.read_json( std_json, typ='series', orient='records' )
-                redis_set('global_mean',mean)
-                redis_set('global_std',std)
-                redis_set('step','normalization')
+                norm_step = redis_get("norm_step")
+
+                if norm_step=="mean":
+                    global_mean = request.get_json(True)['global_mean']
+                    mean = pd.read_json( global_mean, typ='series', orient='records' )
+                    redis_set('global_mean',mean)
+                    redis_set('step','local_variance')
+
+                if norm_step=="variance":
+                    global_std = request.get_json(True)['global_std']
+                    std = pd.read_json( global_std, typ='series', orient='records' )
+                    redis_set( 'global_std', std )
+                    redis_set('step','normalization')
+
                 return jsonify(True)
 
             # get initialized model parameter (zeros)
@@ -269,6 +324,7 @@ def data():
                 redis_set('result',summary)
                 redis_set('c_index',c_index)
                 redis_set('step','final') # final.html will be displayed with summary dataframe
+
                 return jsonify(True)
 
     # data will be send to the master
@@ -283,6 +339,7 @@ def data():
                 event_col = redis_get('event_col')
                 l1_ratio = redis_get('l1_ratio')
                 penalization = redis_get('penalization')
+                intersection = redis_get('intersection')
 
                 data = redis_get('data')
                 covariates = data.columns.values
@@ -290,39 +347,46 @@ def data():
                 covariates = np.delete(covariates,index)
                 index = np.argwhere( covariates == event_col )
                 covariates = np.delete(covariates,index)
-                redis_set('covariates',covariates)
+                redis_set('master_covariates',covariates)
                 covariates_json = covariates.tolist()
                 covariates_json = json.dumps(covariates_json)
 
-
                 redis_set('available',False)
-                redis_set('step','preprocessing')
                 redis_set( 'master_step', 'master_intersect' )
                 redis_set( 'slave_step', 'slave_intersect' )
-                preprocessing()
-                return jsonify({'upload_info':(max_steps,precision,duration_col,event_col,covariates_json,l1_ratio,penalization)})
+
+                return jsonify({'upload_info':(max_steps,precision,duration_col,event_col,covariates_json,l1_ratio,penalization,intersection)})
 
             # send the intersection of all covariates to slaves
             elif master_step == 'master_intersect':
                 current_app.logger.info( '[API] /data master_norm GET request ' )
                 intersected_covariates = redis_get('intersected_covariates')
                 covariates_json = intersected_covariates.to_json()
-                redis_set('step','local_norm')
                 redis_set( 'available', False )
                 redis_set( 'slave_step', 'slave_norm' )
                 redis_set( 'master_step', 'master_norm' )
+                redis_set('step','local_mean')
+                local_mean_calculation()
                 return jsonify({'intersected_covariates':(covariates_json)})
 
-            # send global mean and standard deviation to slaves
+            # send global mean to slaves
             elif master_step == 'master_norm':
                 current_app.logger.info( '[API] /data master_norm GET request ' )
-                global_mean = redis_get('global_mean')
-                global_std = redis_get('global_std')
-                mean_json = global_mean.to_json(double_precision=15)
-                std_json = global_std.to_json(double_precision=15)
-                redis_set('available',False)
-                redis_set('step','normalization')
-                return jsonify({'mean_std':(mean_json,std_json)})
+                norm_step = redis_get("norm_step")
+                if norm_step=="mean":
+                    global_mean = redis_get('global_mean')
+                    mean_json = global_mean.to_json(double_precision=15)
+                    redis_set('available',False)
+                    redis_set('step','local_variance')
+                    return jsonify( {'global_mean': (mean_json)} )
+
+                elif norm_step=="variance":
+                    global_std = redis_get( 'global_std' )
+                    std_json = global_std.to_json( double_precision=15 )
+                    redis_set( 'available', False )
+                    redis_set( 'step', 'normalization' )
+
+                    return jsonify( {'global_std': (std_json)} )
 
             # send initial model parameter to slaves (zeros)
             elif master_step == 'master_init':
@@ -360,7 +424,6 @@ def data():
                 beta_json = json.dumps( beta_json )
                 redis_set( 'available', False ) # in /status local_statistics_calculation will be called
                 if converging:
-                    #step_to_local_stat() #new iteration -> step: local_stat
                     redis_set('step','local_stat')
                 else:
                     redis_set('step','local_c_index') # -> summary
@@ -374,6 +437,18 @@ def data():
                 result = redis_get('result')
                 result_json = result.to_json()
                 redis_set( 'available', False )
+
+                start_time = redis_get( 'start_time' )
+                stop_time = time.time()
+                current_app.logger.info(
+                    f'[WEB] time for calculating the result dataframe and concordance index: {stop_time- start_time}' )
+                redis_set( 'start_time', stop_time )
+
+                start_time = redis_get( 'global_time' )
+                stop_time = time.time()
+                current_app.logger.info(
+                    f'[WEB] time for whole Cox model: {stop_time- start_time}' )
+
                 redis_set('step','final')
                 return jsonify({'result':(result_json,c_index)})
 
@@ -386,18 +461,27 @@ def data():
                 redis_set( 'available', False )
                 return jsonify({'covariates':(covariates.to_json())})
 
-            # send local mean and standard deviation to master
-            if slave_step == 'slave_norm':
+            # send local mean to master
+            elif slave_step == 'slave_norm':
                 current_app.logger.info( '[API] /data slave_norm GET request ' )
-                local_norm = redis_get('local_norm')
-                current_app.logger.info(local_norm)
-                mean = local_norm[0]
-                std = local_norm[1]
-                n = local_norm[2] # number of samples
-                mean_json = mean.to_json(double_precision=15)
-                std_json = std.to_json(double_precision=15)
-                redis_set('available', False)
-                return jsonify({'local_norm': (mean_json,std_json,n)})
+                norm_step = redis_get('norm_step')
+
+                if norm_step=="mean":
+                    local_norm = redis_get('local_norm')
+                    current_app.logger.info(local_norm)
+                    mean = local_norm[0]
+                    n = local_norm[1] # number of samples
+                    mean_json = mean.to_json(double_precision=15)
+                    redis_set('available', False)
+                    return jsonify({'local_norm':(mean_json,n)})
+
+                elif norm_step=="variance":
+                    local_norm = redis_get( 'local_norm' )
+                    current_app.logger.info( local_norm )
+                    variance = local_norm
+                    variance_json = variance.to_json( double_precision=15 )
+                    redis_set( 'available', False )
+                    return jsonify( {'local_norm': (variance_json)} )
 
             # send initial statistics to master
             elif slave_step=='slave_init':
@@ -510,6 +594,7 @@ def preprocessing():
         current_app.logger.info( '[API] Preprocessing is done (X,T,E saved)' )
 
         redis_set('step','find_intersection')
+
         get_local_covariates()
 
 def get_local_covariates():
@@ -517,6 +602,7 @@ def get_local_covariates():
     get the name of the covariates of the local dataframe and send to the master
     """
     current_app.logger.info( '[API] run get_local_covariates' )
+
     X = redis_get( 'X' )
     duration_col = redis_get('duration_col')
     event_col = redis_get('event_col')
@@ -526,7 +612,7 @@ def get_local_covariates():
     index = np.argwhere( covariates == event_col )
     covariates = np.delete( covariates, index )
     redis_set('covariates',pd.Series(covariates))
-    current_app.logger.info(f'[API] covariates: {covariates}')
+    #current_app.logger.info(f'[API] covariates: {covariates}')
     if redis_get( 'master' ):
         global_cov = redis_get( 'global_cov' )
         global_cov.append(pd.Series(covariates))
@@ -534,7 +620,6 @@ def get_local_covariates():
         global_covariates_intersection()
 
     else:
-        redis_set( 'covariates', pd.Series(covariates) )
         redis_set( 'available', True)
 
 def global_covariates_intersection():
@@ -544,6 +629,11 @@ def global_covariates_intersection():
     np.set_printoptions( precision=30 )
     if len( global_cov ) == nr_clients:
         current_app.logger.info( '[API] The data of all clients has arrived' )
+
+        start_time = time.time() #start of runtime check
+        redis_set('start_time',start_time)
+        redis_set('global_time',start_time)
+
         intersect_covariates = pd.Series()
 
         for cov in global_cov:
@@ -552,19 +642,26 @@ def global_covariates_intersection():
             else:
                 intersect_covariates = pd.Series(np.intersect1d(intersect_covariates,cov))
 
-        current_app.logger.info( f'[API] intersection of covariates: {intersect_covariates}' )
+        #current_app.logger.info( f'[API] intersection of covariates: {intersect_covariates}' )
         redis_set( 'intersected_covariates', intersect_covariates )
         redis_set( 'available', True ) # send the intersected covariates to slaves
+
     else:
         current_app.logger.info( '[API] Not the data of all clients has been send to the master' )
 
-def local_normalization():
+def local_mean_calculation():
     """
     Udate the dataset which is used for the cox regression using the intersection of covariates and
-    calculate mean and standard deviation of the local dataframe and send to the master
+    calculate mean of the local dataframe and send to the master
 
     """
-    current_app.logger.info('[API] run local_normalization')
+    if redis_get('master'):
+        start_time = redis_get( 'start_time' )
+        stop_time = time.time()
+        current_app.logger.info( f'[WEB] time for covariates intersection calculation and sending: {stop_time- start_time}' )
+        redis_set( 'start_time', stop_time )
+
+    current_app.logger.info('[API] run local_mean_calculation')
     X = redis_get('X')
     if X is None:
         current_app.logger.info('[API] X is None')
@@ -577,57 +674,97 @@ def local_normalization():
 
         # start normalization
         norm_mean = X.mean(0)
-        norm_std = X.std(0)
-
         n,d = X.shape #needed for penalization
 
-        client_id = redis_get('id')
-        np.set_printoptions( precision=30 )
-        current_app.logger.info(f'[API] local_mean of client {client_id}: {norm_mean.to_numpy()}')
-        current_app.logger.info( f'[API] local_std of client {client_id}: {norm_std.to_numpy()}' )
         if redis_get('master'):
+            redis_set("norm_step","mean")
             redis_set('step','send_to_master')
             global_norm = redis_get('global_norm')
-            global_norm.append((norm_mean, norm_std,n))
+            global_norm.append((norm_mean,n))
             redis_set('global_norm', global_norm)
-            global_normalization()
+            global_mean_calculation()
         else:
-            redis_set('local_norm', (norm_mean, norm_std,n))
+            redis_set("norm_step","mean")
+            redis_set('local_norm',(norm_mean,n))
             redis_set('step','send_to_master')
             redis_set('available', True)
 
-def global_normalization():
+def global_mean_calculation():
     """
-    calculate the global mean and standard deviation if the data of all clients arrived
+    calculate the global mean if the data of all clients arrived
     """
-    current_app.logger.info('[API] run global_normalization')
+    current_app.logger.info('[API] run global_mean_calculation')
     global_norm = redis_get('global_norm')
     nr_clients = redis_get('nr_clients')
     np.set_printoptions( precision=30 )
     if len(global_norm) == nr_clients:
         current_app.logger.info('[API] The data of all clients has arrived')
         mean = pd.Series()
-        std = pd.Series()
         n=0 # number of samples
 
         for client in global_norm:
             mean = mean.add(client[0],fill_value=0)
-            std = std.add(client[1],fill_value=0)
-            n += client[2]
+            n += client[1]
 
         result_mean = mean/nr_clients
-        result_std = std/nr_clients
         np.set_printoptions(precision=30)
         current_app.logger.info( f'[API] global mean result: {result_mean.to_numpy()}')
-        current_app.logger.info( f'[API] global standard deviation result: {result_std.to_numpy()}' )
-        current_app.logger.info( f'[API] nr_samples: {n}' )
+        current_app.logger.info(f'[API] nr_samples: {n}')
         redis_set('global_mean', result_mean)
-        redis_set('global_std',result_std)
         redis_set('nr_samples',n)
         redis_set( 'available', True )
-        redis_set('step','global_norm')
+        redis_set('step','global_mean')
     else:
         current_app.logger.info('[API] Not the data of all clients has been send to the master')
+
+def local_variance_calculation():
+    """
+        calculate variance of the local dataframe and send to the master
+
+        """
+
+    # calculate local variance using the global mean
+    global_mean = redis_get("global_mean")
+    X = redis_get("X")
+    variance = np.mean((X-global_mean)**2,axis=0)
+
+    if redis_get( 'master' ):
+        redis_set('norm_step',"variance")
+        redis_set( 'step', 'send_to_master' )
+        global_norm = []
+        global_norm.append( (variance) )
+        redis_set( 'global_norm', global_norm )
+        global_variance_calculation()
+    else:
+        redis_set( 'norm_step', "variance" )
+        redis_set( 'local_norm', (variance) )
+        redis_set( 'step', 'send_to_master' )
+        redis_set( 'available', True )
+
+def global_variance_calculation():
+    """
+        calculate the global variance and std if the data of all clients arrived
+        """
+    current_app.logger.info( '[API] run global_variance_calculation' )
+    global_norm = redis_get( 'global_norm' )
+    nr_clients = redis_get( 'nr_clients' )
+    np.set_printoptions( precision=30 )
+    if len( global_norm ) == nr_clients:
+        current_app.logger.info( '[API] The data of all clients has arrived' )
+        variance=pd.Series()
+        for client in global_norm:
+            variance = variance.add( client, fill_value=0 )
+
+        result_variance = variance / nr_clients
+        result_std = np.sqrt(result_variance)
+
+        np.set_printoptions( precision=30 )
+        current_app.logger.info( f'[API] global std result: {result_std.to_numpy()}' )
+        redis_set( 'global_std', result_std )
+        redis_set( 'available', True )
+        redis_set( 'step', 'global_variance' )
+    else:
+        current_app.logger.info( '[API] Not the data of all clients has been send to the master' )
 
 def normalization():
     """
@@ -641,11 +778,17 @@ def normalization():
     X = redis_get('X')
     X_norm = pd.DataFrame(normalize(X.values,mean.values,std.values),index=X.index,columns=X.columns)
     redis_set('X_norm',X_norm)
-    current_app.logger.info( f'[API] normalized dataset: {X_norm.to_numpy()}' )
 
     redis_set('master_step','master_init')
     redis_set('slave_step','slave_init')
     redis_set('step','local_init')
+
+    if redis_get('master'):
+        start_time = redis_get( 'start_time' )
+        stop_time = time.time()
+        current_app.logger.info( f'[WEB] time for normalization of dataset: {stop_time- start_time}' )
+        redis_set( 'start_time', stop_time )
+
     local_initialization()
 
 def local_initialization():
@@ -659,7 +802,7 @@ def local_initialization():
     sort_by = [duration_col]
     data = redis_get('data')
     data = data.sort_values(by=sort_by)
-    risk_set = {}
+    #risk_set = {}
     death_set = {}
     numb_d_set = {}
 
@@ -667,9 +810,9 @@ def local_initialization():
     distinct_times = pd.Series(data[ duration_col ].unique() )
 
     for uniq_time in distinct_times:
-        Ri = data[ data[ duration_col ] >= uniq_time ].index.tolist()
+        #Ri = data[ data[ duration_col ] >= uniq_time ].index.tolist()
         Di = data[(data[ duration_col ] == uniq_time) & (data[ event_col ] == 1) ].index.tolist()
-        risk_set[ uniq_time ] = Ri
+        #risk_set[ uniq_time ] = Ri
         death_set[ uniq_time ] = Di
         numb_d_set[ str(uniq_time) ] = str(len( Di ))
 
@@ -715,20 +858,20 @@ def global_initialization():
 
         # sum over all sites |Dki| ({time i : |Dki|}
         count_d = {}
-        for time in D:
+        for t in D:
             val = 0
             for client in global_init:
-                n = client[2].get(str(time))
+                n = client[2].get(str(t))
                 if n is not None:
                     val = val + int(n)
-            count_d[ time ] = val
+            count_d[ t ] = val
 
         redis_set('global_count_d',count_d)
         redis_set('global_D',D)
         redis_set('global_zr',zr)
-        current_app.logger.info( f'[API] global D: {D}' )
-        current_app.logger.info( f'[API] global zr: {zr.values}' )
-        current_app.logger.info( f'[API] global count_d: {count_d}' )
+        #current_app.logger.info( f'[API] global D: {D}' )
+        #current_app.logger.info( f'[API] global zr: {zr.values}' )
+        #current_app.logger.info( f'[API] global count_d: {count_d}' )
 
         redis_set( 'available', True )  # master will afterwards send the initial model parameter to the clients (GET)
 
@@ -743,8 +886,9 @@ def local_statistics_calculation():
     """
 
     current_app.logger.info( '[API] run local_statistics' )
+
     np.set_printoptions( precision=30 )
-    #test algorithm of lifelines
+
     i1 ={}
     i2 ={}
     i3 ={}
@@ -786,10 +930,10 @@ def local_statistics_calculation():
         risk_phi_x_x_json = json.dumps( risk_phi_x_x_json )
 
         pos = pos-count_of_removal
-        time = str(-uniq_time)
-        i1[time] = risk_phi
-        i2[time] = risk_phi_x_json
-        i3[time] = risk_phi_x_x_json
+        t = str(-uniq_time)
+        i1[t] = risk_phi
+        i2[t] = risk_phi_x_json
+        i3[t] = risk_phi_x_x_json
 
         time_index+=1
 
@@ -802,6 +946,13 @@ def local_statistics_calculation():
         redis_set( 'global_stat', global_stat )
         redis_set('available',False) #POST -> master will get the aggregated statistics from slaves
         redis_set('step','send_to_master')
+
+        start_time = redis_get( 'update_time' )
+        stop_time = time.time()
+        current_app.logger.info(
+            f'[WEB] time for local statistics calculation: {stop_time- start_time}' )
+        redis_set( 'update_time', stop_time )
+
         global_beta_calculation()
     else:
         redis_set( 'local_stat', (i1, i2,i3) )
@@ -845,6 +996,13 @@ def global_beta_calculation():
     d = len( covariates )
 
     if (len( global_stat )) == nr_clients:
+
+        start_time = redis_get( 'update_time' )
+        stop_time = time.time()
+        current_app.logger.info(
+            f'[WEB] time for sending local statistics to server: {stop_time- start_time}' )
+        redis_set( 'update_time', stop_time )
+
         iteration = iteration + 1
         h,g = get_efron_values(global_stat)
 
@@ -872,7 +1030,6 @@ def global_beta_calculation():
                 raise e
 
         delta = inv_h_dot_g
-        #current_app.logger.info(f'[API] delta: {delta}')
         hessian, gradient = h,g
         if delta.size > 0:
             norm_delta = norm(delta)
@@ -900,12 +1057,8 @@ def global_beta_calculation():
         redis_set('step_sizer',step_sizer)
         redis_set('converging',converging)
 
-        #current_app.logger.info(f'[API] step_size: {step_size}')
-        #current_app.logger.info( f'[API] newton_decrement: {newton_decrement}' )
-
-
         beta += step_size * delta
-        current_app.logger.info( f'[API] new updated beta: {beta}' )
+        #current_app.logger.info( f'[API] new updated beta: {beta}' )
 
         redis_set('beta',beta)
         redis_set('hessian',hessian)
@@ -917,6 +1070,12 @@ def global_beta_calculation():
 
         redis_set( 'step', 'send_model_parameter' )
         redis_set( 'available', True ) # send model parameter to slaves
+
+        start_time = redis_get( 'update_time' )
+        stop_time = time.time()
+        current_app.logger.info(
+            f'[WEB] time for updating model parameter: {stop_time- start_time}' )
+        redis_set( 'update_time', stop_time )
 
     else:
         current_app.logger.info( '[API] Not the data of all clients has been send to the master' )
@@ -936,8 +1095,6 @@ def get_efron_values(global_stat):
     global_i1 = {}
     global_i2 = {}
     global_i3 = {}
-
-    current_app.logger.info( f'[API] global_stat: {global_stat}' )
 
     for client in global_stat:
 
@@ -1018,9 +1175,6 @@ def get_efron_values(global_stat):
     hessian = d2
 
 
-    #current_app.logger.info(f'[API] hessian: {hessian}')
-    #current_app.logger.info( f'[API] gradient: {gradient}' )
-
     return hessian, gradient
 
 def local_concordance_calculation():
@@ -1038,7 +1192,6 @@ def local_concordance_calculation():
     X = redis_get('X')
 
     hazards = -_predict_partial_hazard(X,params_)
-    current_app.logger.info( f'[API] hazards: {hazards}' )
 
     c_index = concordance_index(T,hazards,E)
 
@@ -1077,7 +1230,6 @@ def global_summary_calculation():
         current_app.logger.info( f'[API] concordance index: {c_index} ' )
 
         # prepare summary dataframe
-
         beta = redis_get('beta')
         norm_std = redis_get('global_std')
         params_ = beta / norm_std.values
@@ -1085,7 +1237,7 @@ def global_summary_calculation():
         hessian = redis_get('hessian')
         params_ = pd.Series( params_, index=zr.axes[ 0 ], name="coef" )
 
-        current_app.logger.info( f'[API] final model parameter: {params_} ' )
+        #current_app.logger.info( f'[API] final model parameter: {params_} ' )
 
         hazard_ratios_ = pd.Series( np.exp(params_ ), index=zr.axes[ 0 ], name="exp(coef)" )
         alpha = 0.05
@@ -1111,6 +1263,7 @@ def global_summary_calculation():
 
         redis_set('result',df)
         current_app.logger.info(f'[API] result dataframe: {df} ')
+        # current_app.logger.info( f'[API] final model parameter: {params_} ' )
 
         # send summary dataframe and concordance_index to slaves
         redis_set('available',True)

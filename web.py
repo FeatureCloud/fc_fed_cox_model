@@ -1,19 +1,18 @@
 import redis
 import rq
-from flask import Blueprint, current_app, render_template, request, send_file, Response
-from fc_app.api import local_normalization, redis_get, redis_set,preprocessing
+from flask import Blueprint, current_app, render_template, request, send_file, Response, redirect,url_for, flash
+from fc_app.api import redis_get, redis_set, preprocessing
 import pandas as pd
 from io import BytesIO
 from matplotlib.figure import Figure
 from lifelines.utils import inv_normal_cdf
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-
+import time
 
 r = redis.Redis(host='localhost', port=6379, db=0)
 tasks = rq.Queue('fc_tasks', connection=r)
 web_bp = Blueprint('web', __name__)
-#steps = ['setup_master','send_to_slave','setup_slave', 'preprocessing','local_norm', 'send_to_master', 'global_norm', 'normalization','local_init','send_to_master','global_init','local_stat','send_to_master','update_beta','send_model_parameter','summary','final']
 
 
 @web_bp.route('/', methods=['GET'])
@@ -27,24 +26,35 @@ def root():
              else: the calculations are not yet finished
     """
     step = redis_get('step')
+
     if step == 'start':
         return render_template('setup.html')
+
     elif step == 'setup_master':
         current_app.logger.info('[WEB] Before rendering start_client.html')
         if redis_get('master'):
             return render_template('setup_master.html')
         else:
             return render_template('setup.html')
+
     elif step=='setup_slave':
         if not redis_get('master'):
+            # get information from master to show in slaves setup html page
             max_steps = redis_get('max_steps')
             precision = redis_get('precision')
             duration_col = redis_get('duration_col')
             event_col = redis_get('event_col')
-            covariates = redis_get('covariates')
+            covariates = redis_get('master_covariates')
             covariates = ', '.join(covariates)
             l1_ratio = redis_get('l1_ratio')
             penalization = redis_get('penalization')
+            intersection = redis_get('intersection')
+
+
+            if intersection==0:
+                intersect = 'No. All covariates needs to be in the dataset.'
+            else:
+                intersect = 'Yes. The intersection of covariates of all clients is used.'
             if penalization==0:
                 penalizer = 'no'
             else:
@@ -55,20 +65,39 @@ def root():
                 else:
                     penalizer = 'elastic net penalized regression with penalizer: '+str(penalization) + ' and l1_ratio: '+str(l1_ratio)
 
-            return render_template('setup_client.html',max_steps = max_steps, precision = precision, duration_col = duration_col, event_col = event_col, covariates = covariates, penalizer=penalizer)
+            return render_template('start_client.html',max_steps = max_steps, precision = precision, duration_col = duration_col, event_col = event_col, covariates = covariates, penalizer=penalizer,intersect=intersect)
         else:
             return render_template('calculations.html')
+
     elif step == 'final':
-        result = redis_get('result')
-        penalization = redis_get('penalization')
+        result = redis_get( 'result' )
+        penalization = redis_get( 'penalization' )
         # if a variable selection method was executed, just the covariates with p-values<=0.05 are shown in the final.html site
-        if (penalization==0): result_html = result.to_html(classes='data',header='true')
+        if (penalization == 0):
+            result_html = result.to_html( classes='data', header='true' )
         else:
             result = result[ result[ 'p' ] <= 0.05 ]
             result_html = result.to_html( classes='data', header='true' )
 
-        c_index = redis_get('c_index')
-        return render_template('final.html',tables=[result_html],c_index=c_index)
+        c_index = redis_get( 'c_index' )
+
+        intersection = redis_get( 'intersection' )
+
+        if intersection == 1:
+            if redis_get( 'master' ):
+                cov = redis_get( 'covariates' )
+            else:
+                cov = redis_get( 'master_covariates' )
+
+            intersect_covariates = redis_get( 'intersected_covariates' )
+            # find those covariates who fall away
+            fall_away = set( cov ) ^ set( intersect_covariates )
+            current_app.logger.info( f'[WEB] fall_away covariates: {fall_away}' )
+            if fall_away:
+                covariates = ", ".join( str( cov ) for cov in fall_away )
+                warning = "Some clients didn't have all covariates. The missing ones are :" + covariates
+                flash( warning )
+        return render_template( 'final.html', tables=[ result_html ], c_index=c_index )
     else:
         return render_template('calculations.html')
 
@@ -103,118 +132,218 @@ def run():
     :return: HTML page with content to the relevant step
     """
     cur_step = redis_get('step')
+
     if cur_step == 'start':
         current_app.logger.info('[WEB] POST request to /run in step "start" -> wait setup not finished')
         return 'Wait until setup is done'
 
     elif cur_step == 'setup_master':
         if redis_get('master'):
-            current_app.logger.info('[WEB] POST request to /run in step "setup" -> read data')
-            current_app.logger.info('[WEB] Upload file')
-            current_app.logger.info('[WEB] Select duration and event columns')
             result = request.form
-            if 'file' in request.files:
+            # check if a file was uploaded
+            if 'file' in request.files :
                 file = request.files['file']
-                file_type = result[ 'file_type' ]
-                if file_type=='csv':
-                    data = pd.read_csv(file,sep=',',encoding="latin-1")
-                elif file_type=='tsv':
-                    data = pd.read_csv( file, sep='\t', encoding="latin-1" )
-                current_app.logger.info(f'[WEB] data: {data}')
-                redis_set('data', data)
-                current_app.logger.info('[WEB] File successfully uploaded and processed')
+                if file.filename != '':
+                    file_type = result[ 'file_type' ]
+                    if file_type=='csv':
+                        try:
+                            data = pd.read_csv(file,sep=',',encoding="latin-1")
+                        except Exception:
+                            error_message = 'Upload file not in selected format!'
+                            flash( error_message )
+                            return request.referrer
 
-                duration_col = result['duration_col']
-                event_col = result['event_col']
+                    elif file_type=='tsv':
+                        try:
+                            data = pd.read_csv( file, sep='\t', encoding="latin-1" )
+                        except Exception:
+                            error_message = 'Upload file not in selected format!'
+                            flash( error_message )
+                            return request.referrer
 
-                max_steps = result['max_steps']
-                precision = result['precision']
-                redis_set('max_steps',int(max_steps))
-                redis_set('precision',float(precision))
+                    redis_set('data', data)
+                    current_app.logger.info('[WEB] File successfully uploaded and processed')
 
-                high_dimensional = result['hg_radio']
-                if high_dimensional=='no':
-                    l1_ratio = 0.0
-                    penalization=0.0
-                elif high_dimensional=='yes':
-                    penalty = result['penalty']
-                    if penalty=='lasso':
-                        l1_ratio=0.0
-                    elif penalty=='ridge':
-                        l1_ratio=1.0
-                    elif penalty=='elastic_net':
-                        l1_ratio=result['l1_ratio']
-                    penalization = result['penalization']
+                    duration_col = result['duration_col']
+                    event_col = result['event_col']
 
-                redis_set('penalization',float(penalization))
-                redis_set('l1_ratio',float(l1_ratio))
+                    current_app.logger.info( f'[WEB] Duration and event column selected' )
 
-                current_app.logger.info( f'[WEB] max_steps: {int(max_steps)}' )
-                current_app.logger.info( f'[WEB] precision: {float(precision)}' )
-                current_app.logger.info( f'[WEB] penalization: {float(penalization)}' )
-                current_app.logger.info( f'[WEB] l1_ratio: {float(l1_ratio)}' )
+                    max_steps = result['max_steps']
+                    precision = result['precision']
+                    redis_set('max_steps',int(max_steps))
+                    redis_set('precision',float(precision))
 
-                if (duration_col is None or event_col is None):
-                    current_app.logger.info( '[WEB] No duration or event column specified ' )
-                    return render_template('empty.html')
+                    intersection = result['intersection']
+                    if intersection=='intersect_yes':
+                        #take the intersection of all covariates
+                        redis_set('intersection',1)
+                    elif intersection=='intersect_no':
+                        #force clients to have all the same covariates
+                        redis_set('intersection',0)
+
+                    high_dimensional = result['hg_radio']
+                    if high_dimensional=='no':
+                        l1_ratio = 0.0
+                        penalization=0.0
+                    elif high_dimensional=='yes':
+                        penalty = result['penalty']
+                        if penalty=='lasso':
+                            l1_ratio=0.0
+                        elif penalty=='ridge':
+                            l1_ratio=1.0
+                        elif penalty=='elastic_net':
+                            l1_ratio=result['l1_ratio']
+                        penalization = result['penalization']
+
+                    redis_set('penalization',float(penalization))
+                    redis_set('l1_ratio',float(l1_ratio))
+
+
+                    #check if event and duration column were specified
+                    if (duration_col == '' or event_col == ''):
+                        error_message = 'No duration or event column specified, please do setup again!'
+                        flash(error_message)
+                        return request.referrer
+                    else:
+                        #check if duration and event column are really columns of the data
+                        if (duration_col in data.columns) and (event_col in data.columns):
+                            #current_app.logger.info( f'[WEB] duration_col: {duration_col}' )
+                            redis_set( 'duration_col', duration_col )
+                            #current_app.logger.info( f'[WEB] event_col: {event_col}' )
+                            redis_set( 'event_col', event_col )
+                            #current_app.logger.info( '[WEB] Duration and event columns successfully uploaded' )
+
+                            # the parameter will be send to the slaves
+                            redis_set( 'available', True )
+                            redis_set( 'step', 'preprocessing' )
+                            preprocessing()
+                            return render_template('calculations.html')
+
+                        # if they do not exist in data
+                        else:
+                            current_app.logger.info( '[WEB] Event and/or duration column not in dataset' )
+                            error_message = 'Duration and/or event column not in dataset, please do setup again!'
+                            flash( error_message )
+                            return request.referrer
                 else:
-                    current_app.logger.info( f'[WEB] duration_col: {duration_col}' )
-                    redis_set('duration_col',duration_col)
-                    current_app.logger.info( f'[WEB] event_col: {event_col}' )
-                    redis_set('event_col',event_col)
-
-                    current_app.logger.info('[WEB] Duration and event columns successfully uploaded')
-
-                    redis_set('step','send_to_slave')
-                    redis_set('available',True)
-
-                    return render_template('calculations.html')
+                    # if no file was uploaded, show again setup page with error message
+                    current_app.logger.info( '[WEB] No File was uploaded' )
+                    error_message = 'No file was uploaded, please do setup again!'
+                    flash( error_message )
+                    return redirect(url_for('web.root'))
 
             else:
+                # if no file was uploaded, show again setup page with error message
                 current_app.logger.info('[WEB] No File was uploaded')
-                return render_template('empty.html')
+                error_message = 'No file was uploaded, please do setup again!'
+                flash( error_message )
+                return redirect( url_for( 'web.root' ) )
 
     elif cur_step == 'setup_slave':
         if not redis_get('master'):
-            current_app.logger.info( '[WEB] POST request to /run in step "setup" -> read data' )
-            current_app.logger.info( '[WEB] Upload file' )
-            current_app.logger.info( '[WEB] Select duration and event columns' )
             result = request.form
             if 'file' in request.files:
                 file = request.files[ 'file' ]
-                file_type = result[ 'file_type' ]
-                if file_type == 'csv':
-                    data = pd.read_csv( file, sep=',', encoding="latin-1" )
-                elif file_type == 'tsv':
-                    data = pd.read_csv( file, sep='\t', encoding="latin-1" )
-                current_app.logger.info( f'[WEB] data: {data}' )
-                redis_set( 'data', data )
-                current_app.logger.info( '[WEB] File successfully uploaded and processed' )
+                if file.filename !='':
+                    file_type = result[ 'file_type' ]
 
-                redis_set('step','preprocessing')
-                redis_set('master_step','master_intersect')
-                redis_set('slave_step','slave_intersect')
-                preprocessing()
-                return render_template( 'calculations.html' )
+                    if file_type == 'csv':
+                        try:
+                            data = pd.read_csv( file, sep=',', encoding="latin-1" )
+                        except Exception:
+                            error_message = 'Upload file not in selected format!'
+                            flash( error_message )
+                            return request.referrer
+                    elif file_type == 'tsv':
+                        try:
+                            data = pd.read_csv( file, sep='\t', encoding="latin-1" )
+                        except Exception:
+                            error_message = 'Upload file not in selected format!'
+                            flash( error_message )
+                            return request.referrer
+
+
+
+                    redis_set( 'data', data )
+                    current_app.logger.info( '[WEB] File successfully uploaded and processed' )
+
+
+                    master_covariates = redis_get('master_covariates')
+                    duration_col = redis_get('duration_col')
+                    event_col = redis_get('event_col')
+                    intersection = redis_get('intersection')
+
+                    # check if duration col and event col are in the dataset
+                    if (duration_col in data.columns) and (event_col in data.columns):
+                        local_covariates = data.columns.values
+                        index = np.argwhere( local_covariates == duration_col )
+                        local_covariates = np.delete( local_covariates, index )
+                        index = np.argwhere( local_covariates == event_col )
+                        local_covariates = np.delete( local_covariates, index )
+
+                        if (intersection==1):
+                            # intersection of covariates is allowed, check if intersection is not null
+                            intersect_covariates = pd.Series( np.intersect1d( local_covariates, master_covariates ) )
+                            if not intersect_covariates.empty:
+                                redis_set( 'master_step', 'master_intersect' )
+                                redis_set( 'slave_step', 'slave_intersect' )
+
+                                redis_set( 'step', 'preprocessing' )
+                                preprocessing()
+
+                                return render_template( 'calculations.html' )
+                            else:
+                                # the intersection of master and client is null, show again setup page with error message
+                                current_app.logger.info( '[WEB] Intersection of covariates is null' )
+                                error_message = 'Not a single covariant matches the specified , please do setup again!'
+                                flash( error_message )
+                                return redirect( url_for( 'web.root' ) )
+
+
+                        elif (intersection==0):
+                            # check if all covariates are exactly the same as those of the master
+                            if (set(master_covariates)==set(local_covariates)):
+                                redis_set( 'master_step', 'master_intersect' )
+                                redis_set( 'slave_step', 'slave_intersect' )
+
+                                redis_set( 'step', 'preprocessing' )
+                                preprocessing()
+
+                                return render_template( 'calculations.html' )
+                            else:
+                                # the covariates need to be all in the data of the slave
+                                current_app.logger.info( '[WEB] No intersection provided, covariates differ from those of master' )
+                                error_message = 'All given covariates must be in the dataset. Intersection not provided, please do setup again!'
+                                flash( error_message )
+                                return redirect( url_for( 'web.root' ) )
+
+                    else:
+                        # duration and event col are not in the dataset, show again setup page with error message
+                        current_app.logger.info( '[WEB] Duration and/or event Column not in dataset' )
+                        error_message = 'Duration and/or event column not in dataset, please do setup again!'
+                        flash( error_message )
+                        return redirect( url_for( 'web.root' ) )
+
+
+                else:
+                    # if no file was uploaded, show again setup page with error message
+                    current_app.logger.info( '[WEB] No File was uploaded' )
+                    error_message = 'No file was uploaded, please do setup again!'
+                    flash( error_message )
+                    return redirect( url_for( 'web.root' ) )
+
 
             else:
+                # if no file was uploaded, show again setup page with error message
                 current_app.logger.info( '[WEB] No File was uploaded' )
-                return render_template( 'empty.html' )
+                error_message = 'No file was uploaded, please do setup again!'
+                flash( error_message )
+                return redirect( url_for( 'web.root' ) )
 
     elif cur_step == 'final':
         current_app.logger.info('[WEB] POST request to /run in step "final" -> GET request to "/"')
         # TODO weiterleitung zu route /
-        result = redis_get( 'result' )
-        penalization = redis_get( 'penalization' )
-        # if a variable selection method was executed, just the covariates with p-values<=0.05 are shown in the final.html site
-        if (penalization == 0):
-            result_html = result.to_html( classes='data', header='true' )
-        else:
-            result = result[ result[ 'p' ] <= 0.05 ]
-            result_html = result.to_html( classes='data', header='true' )
-
-        c_index = redis_get( 'c_index' )
-        return render_template( 'final.html', tables=[ result_html ], c_index=c_index )
 
     else:
         current_app.logger.info(f'[WEB] POST request to /run in step "{cur_step}" -> wait calculations not finished')
@@ -224,7 +353,7 @@ def run():
 def download_results():
     result = redis_get('result')
     file_data = result.to_csv(sep='\t').encode()
-    return send_file(BytesIO(file_data), attachment_filename='results.csv', as_attachment=True)
+    return send_file(BytesIO(file_data), attachment_filename='results.tsv', as_attachment=True)
 
 @web_bp.route('/plot.png')
 def download_plot():

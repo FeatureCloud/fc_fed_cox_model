@@ -29,6 +29,8 @@
 
 
 <body>
+
+
 <nav class="navbar navbar-expand-lg navbar-light bg-light bg-transparent" id="gtco-main-nav">
     <div class="container"><a class="navbar-brand">Federated Cox Model</a>
         <button class="navbar-toggler" data-target="#my-nav" onclick="myFunction(this)" data-toggle="collapse"><span
@@ -39,6 +41,7 @@
                 <li class="nav-item"><a class="nav-link" href="#howto">How To</a></li>
             </ul>
         </div>
+
     </div>
 </nav>
 
@@ -52,7 +55,23 @@
                     must fulfill various criteria in order for the regression to be performed correctly. </p>
             </div>
         </div>
+
+        <div>
+            {% with messages = get_flashed_messages() %}
+            {% if messages %}
+            {% for message in messages %}
+            <div class="alert alert-danger">
+                <span class="closebtn" onclick="this.parentElement.style.display='none';">&times;</span>
+                {{message}}
+            </div>
+
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+            {% block body %}{% endblock %}
+        </div>
     </div>
+
 </div>
 
 
@@ -96,10 +115,11 @@
                         <h4 style="margin-top:20px">1) Duration Column has to be named: </h4> {{duration_col}}
                         <h4 style="margin-top:20px">2) Event Column has to be named: </h4> {{event_col}}
                         <h4 style="margin-top:20px">3) Covariates have to be named: </h4> {{covariates}}
+                        <h4 style="margin-top:20px">4) Intersection: </h4> {{intersect}}
                     <h2><u> Cox Regression Parameter:</u></h2>
                         <li>Maximum Number of Iterations:{{max_steps}}</li>
                         <li>Precision: {{precision}}</li>
-                        <li>High-dimensional data: {{penalizer}}</li>
+                        <li>Penalized Regression: {{penalizer}}</li>
 
                 </div>
             </div>
@@ -191,18 +211,6 @@
                 </svg>
                 <div class="row">
                     <div class="col">
-                        <div class="card text-center">
-                            <div class="card-body">
-                                <h3 class="card-title">Upload File</h3>
-                                <p class="card-text">Select the file of your desired dataset.</p>
-                            </div>
-                        </div>
-                        <div class="card text-center">
-                            <div class="card-body">
-                                <h3 class="card-title">File Type</h3>
-                                <p class="card-text">You can either upload a CSV file or a TSV file.</p>
-                            </div>
-                        </div>
 
                         <div class="card text-center">
                             <div class="card-body">
@@ -211,10 +219,20 @@
                             </div>
                         </div>
 
+                        <div class="card text-center">
+                            <div class="card-body">
+                                <h3 class="card-title">Intersection</h3>
+                                <p class="card-text"> If intersection=No, all covariates have to be in the dataset.
+                                    Otherwise the intersection of covariates of all clients is used for the Cox PH Model.</p>
+                            </div>
+                        </div>
+
                     </div>
                     <div class="col">
+
+
                         <div class="card text-center">
-                        <div class="card-body">
+                            <div class="card-body">
                                 <h3 class="card-title">Maximum Number of Iterations and Convergence Criteria</h3>
                                 <p class="card-text">Cox model is performed with max_steps and precision criteria set by the master.</p>
                             </div>
@@ -222,9 +240,8 @@
 
                         <div class="card text-center">
                             <div class="card-body">
-                                <h3 class="card-title">High-Dimensional-Data</h3>
-                                <p class="card-text"> Lasso, ridge or elastic net penalized regression are available for the federated Cox model.
-                                    The penalization term defines the regularization strength. When an elastic net
+                                <h3 class="card-title">Penalized Regression</h3>
+                                <p class="card-text"> The penalization term defines the regularization strength. When an elastic net
                                     regression is performed, an additional parameter l1_ratio
                                     is needed. L1_ratio controls the weighting between the L1 & L2
                                     penalization term.</p>

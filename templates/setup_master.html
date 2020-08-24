@@ -29,10 +29,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <!-- custom CSS -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="../static/css/style.css">
 
     <!-- awesone fonts css-->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.css') }}">
+    <link rel="stylesheet" href="../static/css/font-awesome.css">
 
 
     <title>Federated Cox Model</title>
@@ -85,6 +85,21 @@
                 <p> Before executing the Cox model, the dataset needs to be uploaded and further parameter initialized. </p>
             </div>
         </div>
+
+        <div>
+            {% with messages = get_flashed_messages() %}
+            {% if messages %}
+            {% for message in messages %}
+            <div class="alert alert-danger">
+                <span class="closebtn" onclick="this.parentElement.style.display='none';">&times;</span>
+                {{message}}
+            </div>
+
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+            {% block body %}{% endblock %}
+        </div>
     </div>
 </div>
 <div class="container-fluid gtco-feature" id="setup">
@@ -113,7 +128,7 @@
                                     <path d="M89.479,0.180 L512.635,25.932 C568.395,29.326 603.115,76.927 590.357,129.078 L528.827,380.603 C518.688,422.048 472.661,448.814 427.190,443.300 L73.350,400.391 C32.374,395.422 -0.267,360.907 -0.002,322.064 L1.609,85.154 C1.938,36.786 40.481,-2.801 89.479,0.180 Z"></path>
                                 </clipPath>
                                 <!-- xlink:href for modern browsers, src for IE8- -->
-                                <image clip-path="url(#clip-path)" xlink:href="{{ url_for('static', filename='images/setup.png') }}" width="70%"
+                                <image clip-path="url(#clip-path)" xlink:href="../static/images/setup.png" width="70%"
                                        height="400" class="svg__image"></image>
                             </svg>
                         </div>
@@ -153,14 +168,19 @@
                             <label for="precision"> Convergence:</label>
                             <input type="text" name="precision" id="precision" value="1e-07">
 
+                        <h4 style="margin-top:20px">5) Intersection of Covariates of Clients</h4>
+                            <label for="intersect_yes">Yes</label>
+                            <input type="radio" name="intersection" id="intersect_yes" value="intersect_yes">
+                            <label for="intersect_no">No</label>
+                            <input type="radio" name="intersection" id="intersect_no" value="intersect_no" checked>
 
-                        <h4 style="margin-top:20px">5) High-Dimensional Data:</h4>
-                            <label>No</label><input type="radio" onclick="javascript:high_dimensional_check();" name="hg_radio" id="hg_no" value="no" checked>
+                        <h4 style="margin-top:20px">6) Penalized Regression</h4>
                             <label>Yes</label><input type="radio" onclick="javascript:high_dimensional_check();" name="hg_radio" id="hg_yes" value="yes">
+                            <label>No</label><input type="radio" onclick="javascript:high_dimensional_check();" name="hg_radio" id="hg_no" value="no" checked>
 
 
                         <div id="ifYes" style="visibility:hidden">
-                            <h4 style="margin-top:20px">6) L1, L2 or Elastic Net Penalized Regression</h4>
+                            <h4 style="margin-top:20px">7) L1, L2 or Elastic Net Penalized Regression</h4>
                             <div>
                                 <label for="lasso">Lasso Regression</label>
                                 <input type="radio" name="penalty" id="lasso" value="lasso" onclick="javascript:elastic_net_check();" checked>
@@ -169,7 +189,7 @@
                                 <label for="elastic_net">Elastic Net Regression</label>
                                 <input type="radio" name="penalty" id="elastic_net" value="elastic_net" onclick="javascript:elastic_net_check();">
                             </div>
-                            <h4 style="margin-top:20px">7) Tuning Parameter: </h4>
+                            <h4 style="margin-top:20px">8) Tuning Parameter: </h4>
                             <div>
                                 <label for="penalization">Penalizer:</label>
                                 <input type="text" name="penalization" id="penalization">
@@ -215,21 +235,18 @@
                     <div class="col">
                         <div class="card text-center">
                             <div class="card-body">
-                                <h3 class="card-title">Upload File</h3>
-                                <p class="card-text">Select the file of your desired dataset.</p>
-                            </div>
-                        </div>
-                        <div class="card text-center">
-                            <div class="card-body">
-                                <h3 class="card-title">File Type</h3>
-                                <p class="card-text">You can either upload a CSV file or a TSV file.</p>
-                            </div>
-                        </div>
-                        <div class="card text-center">
-                            <div class="card-body">
                                 <h3 class="card-title">Duration and Event Column</h3>
                                 <p class="card-text">Select the header of the duration and event column in your
                                     dataset.</p>
+                            </div>
+                        </div>
+
+                        <div class="card text-center">
+                            <div class="card-body">
+                                <h3 class="card-title">Intersection</h3>
+                                <p class="card-text"> If the Cox PH model should be strictly performed with all covariates,
+                                    set intersection to No. If some clients do not have all covariates and the Cox model should be performed
+                                    on the available covariates (intersection of all clients), set intersection to Yes. </p>
                             </div>
                         </div>
 
@@ -245,10 +262,9 @@
                         </div>
                         <div class="card text-center">
                             <div class="card-body">
-                                <h3 class="card-title">High-Dimensional-Data</h3>
-                                <p class="card-text"> Select lasso, ridge or elastic net regression. You always need to
-                                    select a penalization term.
-                                    This parameter defines the regularization strength. By selecting elastic net
+                                <h3 class="card-title">Penalized Regression</h3>
+                                <p class="card-text"> Select lasso, ridge or elastic net regression. The penalization term
+                                    defines the regularization strength. By selecting elastic net
                                     regression, an additional parameter l1_ratio
                                     has to be selected. L1_ratio controls the weighting between the L1 & L2
                                     penalization term.</p>

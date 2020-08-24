@@ -11,27 +11,44 @@
         }
     </style>
 
-
     <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
     <script>
-        function hg_no(){
-            document.getElementById('penalties').style.display ='none';
-        }
-        function hg_yes(){
-            document.getElementById('penalties').style.display = 'block';
+
+        function high_dimensional_check(){
+        if (document.getElementById('hg_yes').checked){
+            if (document.getElementById('elastic_net').checked){
+                document.getElementById('ifElastic').style.visibility = "visible";
+            }
+            document.getElementById('ifYes').style.visibility = "visible";
+        } else {
+            document.getElementById('ifYes').style.visibility = "hidden";
+            document.getElementById('ifElastic').style.visibility = "hidden";
+            }
         }
 
-        function lasso_ridge(){
-            document.getElementById('elastic').style.display = 'none';
-        }
 
-        function elastic_net(){
-            document.getElementById('elastic').style.display = 'block';
+        function elastic_net_check(){
+        if (document.getElementById('elastic_net').checked){
+            document.getElementById('ifElastic').style.visibility = "visible";
+        } else document.getElementById('ifElastic').style.visibility = "hidden";
         }
-
     </script>
 </head>
 <body style="margin: 50px">
+
+<div>
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-danger" role="alert">
+                        <span>{{ message }}</span>
+                    </div>
+
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block body %}{% endblock %}
+</div>
 
 <h1 style="color:#256BEE"><u>Federated Cox Proportional Hazard Model</u></h1>
 
@@ -42,69 +59,63 @@
     <div class="form-group" style="width: 50%">
 
 
-        <h3 style="margin-bottom: 15px">Upload Data </h3>
-        <div class="input-group">
-            <input type="file" name="file" class="form-control-file input-group-prepend" id="file_input">
-        </div>
+        <h4 style="margin-top:20px">1) Upload Data </h4>
+        <input type="file" name="file" class="form-control-file input-group-prepend" id="file_input">
 
-        <h3 style="margin-bottom: 15px">Select Upload File Type </h3>
-        <div class="input-group">
+
+        <h4 style="margin-top:20px">2) File Type </h4>
             <label for="csv_file">CSV File</label>
-            <input type="radio" name="file_type" id="csv_file" value="csv" checked>
-        </div>
-        <div class="input-group">
+            <input type="radio" name="file_type" id="csv_file" value="csv"checked>
             <label for="tsv_file">TSV File</label>
             <input type="radio" name="file_type" id="tsv_file" value="tsv">
-        </div>
 
 
-        <h3 style="margin-bottom: 15px">High-Dimensional Data:</h3>
-        <div>
-            <label><input type="radio" name="hg_radio" value="hg_no" onclick="hg_no()" checked> no</label>
-            <label><input type="radio" name="hg_radio" value="hg_yes" onclick="hg_yes()"> yes</label>
-        </div>
-
-        <div id="penalties" class="hide">
-            <h3 style="margin-bottom: 15px">Select L1, L2 or Elastic Net Penalized Regression</h3>
-            <div>
-            <label><input type="radio" name="penalty" value="lasso" onclick="lasso_ridge()"> Lasso regression</label>
-            <label><input type="radio" name="penalty" value="ridge" onclick="lasso_ridge()"> Ridge regression</label>
-            <label><input type="radio" name="penalty" value="elastic_net" onclick="elastic_net()"> Elastic net regression</label>
-            </div>
-        </div>
-
-        <div id="elastic" class="hide">
-            <div class="input-group">
-                <label for="penalization">Penalizer:</label>
-                <input type="text" name="penalization" id="penalization" value="0.0">
-            </div>
-            <div class="input-group">
-                <label for="l1_ratio">L1_ratio:</label>
-                <input type="text" name="l1_ratio" id="l1_ratio" value="0.0">
-            </div>
-        </div>
-
-        <h3 style="margin-bottom: 15px">Select Duration and Event Columns</h3>
-        <div class="input-group">
+        <h4 style="margin-top:20px">3) Duration and Event Columns</h4>
             <label for="duration_col">Duration Column:</label>
             <input type="text" name="duration_col" id="duration_col">
-        </div>
-
-        <div class="input-group">
             <label for="event_col">Event Column:</label>
             <input type="text" name="event_col" id="event_col">
-        </div>
 
-        <h3 style="margin-bottom: 15px">Select Maximum Number of Iterations and Convergence Criteria</h3>
-
-        <div class="input-group">
-            <label for="max_steps">Maximum Iterations:</label>
+        <h4 style="margin-top:20px">4) Maximum Number of Iterations and Convergence Criteria</h4>
+            <label for="max_steps">Max_steps:</label>
             <input type="text" name="max_steps" id="max_steps" value="500">
-        </div>
-
-        <div class="input-group">
-            <label for="precision"> Convergence Criteria:</label>
+            <label for="precision"> Convergence:</label>
             <input type="text" name="precision" id="precision" value="1e-07">
+
+        <h4 style="margin-top:20px">5) Intersection of Covariates of Clients</h4>
+            <label for="intersect_yes">Yes</label>
+            <input type="radio" name="intersection" id="intersect_yes" value="intersect_yes">
+            <label for="intersect_no">No</label>
+            <input type="radio" name="intersection" id="intersect_no" value="intersect_no" checked>
+
+        <h4 style="margin-top:20px">6) High-Dimensional Data:</h4>
+            <label>Yes</label><input type="radio" onclick="javascript:high_dimensional_check();" name="hg_radio" id="hg_yes" value="yes">
+            <label>No</label><input type="radio" onclick="javascript:high_dimensional_check();" name="hg_radio" id="hg_no" value="no" checked>
+
+
+        <div id="ifYes" style="visibility:hidden">
+            <h4 style="margin-top:20px">7) L1, L2 or Elastic Net Penalized Regression</h4>
+            <div>
+                <label for="lasso">Lasso Regression</label>
+                <input type="radio" name="penalty" id="lasso" value="lasso" onclick="javascript:elastic_net_check();" checked>
+            </div>
+            <div>
+                <label for="ridge">Ridge Regression</label>
+                <input type="radio" name="penalty" id="ridge" value="ridge" onclick="javascript:elastic_net_check();">
+            </div>
+            <div>
+                <label for="elastic_net">Elastic Net Regression</label>
+                <input type="radio" name="penalty" id="elastic_net" value="elastic_net" onclick="javascript:elastic_net_check();">
+            </div>
+            <h4 style="margin-top:20px">8) Tuning Parameter: </h4>
+            <div>
+                <label for="penalization">Penalizer:</label>
+                <input type="text" name="penalization" id="penalization">
+            </div>
+            <div id="ifElastic" style="visibility:hidden">
+            <label for="l1_ratio">L1_ratio:</label>
+            <input type="text" name="l1_ratio" id="l1_ratio">
+        </div>
         </div>
 
         <input value="Run" style="margin: 20px; float: right" type="submit"

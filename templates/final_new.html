@@ -5,7 +5,7 @@
 -->
 <html lang="en">
 <head>
-     <!-- Bootstrap -->
+    <!-- Bootstrap -->
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"
           integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
     <!-- Owl Carousel -->
@@ -47,6 +47,7 @@
 
 
 
+
     </script>
 </head>
 
@@ -69,46 +70,68 @@
         <div class="row">
             <div class="col-md-6">
                 <h1> Federated <span>Privacy-Preserving</span> Cox Proportional Hazard Model</h1>
-                <p> The federated Cox regression was successfully performed. The results are shown below and can be downloaded.  </p>
+                <p> The federated Cox regression was successfully performed. The results are shown below and can be
+                    downloaded. </p>
             </div>
         </div>
+
+        <div>
+            {% with messages = get_flashed_messages() %}
+            {% if messages %}
+            {% for message in messages %}
+            <div class="alert_warning">
+                <span class="closebtn" onclick="this.parentElement.style.display='none';">&times;</span>
+                {{message}}
+            </div>
+
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+            {% block body %}{% endblock %}
+        </div>
+
+
     </div>
 </div>
 
 <div class="container-fluid gtco-features" id="results">
     <div class="container">
 
-                <h2> Results:</h2>
+        <h2> Results:</h2>
 
-                <div style="text-align: center;">
-                            {% for table in tables %}
-                                    {{ table|safe }}
-                            {% endfor %}
-                        </div>
+        <div style="text-align: center;">
+            {% for table in tables %}
+            {{ table|safe }}
+            {% endfor %}
+        </div>
 
-                <p>What does the results mean?</p>
-                <a style="margin-bottom:20px;" href="#meaning">Interpretation<i class="fa fa-angle-right" aria-hidden="true"></i></a>
-                <p>The results can be downloaded as CSV File.</p>
-                <a href="/download_results" target="'blank" style="margin-bottom:20px;"><button class="astext">Download File</button><i class="fa fa-angle-right" aria-hidden="true"></i></a>
+        <p>What does the results mean?</p>
+        <a style="margin-bottom:20px;" href="#meaning">Interpretation<i class="fa fa-angle-right"
+                                                                        aria-hidden="true"></i></a>
+        <p>The results can be downloaded as CSV File.</p>
+        <a href="/download_results" target="'blank" style="margin-bottom:20px;">
+            <button class="astext">Download File</button>
+            <i class="fa fa-angle-right" aria-hidden="true"></i></a>
 
-                <p>Concordance Index: {{c_index}} </p>
+        <p>Concordance Index: {{c_index}} </p>
 
-                <img src="/plot.png" alt="my plot">
+        <img src="/plot.png" alt="my plot">
 
     </div>
 </div>
 
 
 <div class="container-fluid gtco-features" id="meaning">
-<div class="container">
-    <div class="row">
-        <div class="col-lg-4">
-            <h2>Interpretation of Results:</h2>
-            <p> The most important columns of the result table are explained here.</p>
-            <a style="margin-bottom:20px;" href="#results">Back to results<i class="fa fa-angle-right" aria-hidden="true"></i></a>
-        </div>
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-4">
+                <h2>Interpretation of Results:</h2>
+                <p> The most important columns of the result table are explained here.</p>
+                <a style="margin-bottom:20px;" href="#results">Back to results<i class="fa fa-angle-right"
+                                                                                 aria-hidden="true"></i></a>
+            </div>
 
-        <div class="col-lg-8">
+            <div class="col-lg-8">
                 <svg id="bg-services"
                      width="100%"
                      viewBox="0 0 1000 800">
@@ -127,7 +150,7 @@
                             <div class="card-body">
                                 <h3 class="card-title">Regression Coefficients</h3>
                                 <p class="card-text">A positive sign means that the risk of the event is higher,
-                                and thus the prognosis worse, for individuals with higher values of that variable.
+                                    and thus the prognosis worse, for individuals with higher values of that variable.
                                     A negative sign means lower risk of the event occuring.</p>
                             </div>
                         </div>
@@ -146,24 +169,25 @@
                             <div class="card-body">
                                 <h3 class="card-title">P-values</h3>
                                 <p class="card-text">When the p-value is large, the results in the data are
-                                    explainable by chance alone. A sufficiently small p-value, the results are statistically significant.</p>
+                                    explainable by chance alone. A sufficiently small p-value, the results are
+                                    statistically significant.</p>
                             </div>
                         </div>
                         <div class="card text-center">
                             <div class="card-body">
                                 <h3 class="card-title">Concordance Index</h3>
                                 <p class="card-text">The concordance index is a measure of the predicitive
-                                    accuracy of the fitted model onto the training set. It is a value between 0 and 1, with 1
+                                    accuracy of the fitted model onto the training set. It is a value between 0 and 1,
+                                    with 1
                                     representing perfect concordance.</p>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
     </div>
 </div>
-</div>
-
 
 
 <!-- Optional JavaScript -->

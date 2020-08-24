@@ -13,9 +13,24 @@
 </head>
 <body style="margin: 50px">
 
+<div>
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-warning" role="alert">
+                        <span>{{ message }}</span>
+                    </div>
+
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block body %}{% endblock %}
+</div>
+
 <h1 style="color:#256BEE"><u>Federated Cox Proportional Hazard Model</u></h1>
 
 <h2 style="margin-bottom: 30px">Client</h2>
+
 
 <h2 style="margin-bottom: 10px"><font size="5">Results of the federated Cox regression:</font></h2>
 <div style="text-align: center;">
