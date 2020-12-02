@@ -1,3 +1,5 @@
+Federated Cox Proportional Hazard Model App for FeatureCloud
+
 This is a federated Cox proportional hazard model app which is based on the fc federated flask image.
 This app overwrites the api.py as well as the web.py.
 In the templates directory are the html templates for this app.
