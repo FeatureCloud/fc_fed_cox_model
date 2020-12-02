@@ -7,7 +7,7 @@ The build.sh script automatically builds the federated app with the correct name
 Before running the build.sh: first run the build.sh from the fc federated base, then from the fc federated flask and then the one from this app
 To test run the federated Cox proportional hazard model app, the following steps need to be performed:
 
-Run controller-frontend, controller and global-API.
-Open frontend page: https://localhost:4200/app-test.
-Determine the docker image name (app_name:version), the number of clients, and the directory containing the files for each simulated site.
-Press start button to create multiple docker containers simulating the different sites and to test the federated Cox model.
+1. Run controller-frontend, controller and global-API.
+2. Open frontend page: https://localhost:4200/app-test.
+3. Determine the docker image name (app_name:version), the number of clients, and the directory containing the files for each simulated site.
+4. Press start button to create multiple docker containers simulating the different sites and to test the federated Cox model.
