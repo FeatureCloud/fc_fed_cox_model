@@ -1,15 +1,36 @@
-Federated Cox Proportional Hazard Model App for FeatureCloud
+# Cox Proportional Hazards Model FeatureCloud App
 
-This is a federated Cox proportional hazard model app which is based on the fc federated flask image.
-This app overwrites the api.py as well as the web.py.
-In the templates directory are the html templates for this app.
-In the static directory are the html images, css files and fonts required for the html templates.
-In the requirements.txt are the project specific python requirements.
-The build.sh script automatically builds the federated app with the correct name. (bash build.sh)
-Before running the build.sh: first run the build.sh from the fc federated base, then from the fc federated flask and then the one from this app
-To test run the federated Cox proportional hazard model app, the following steps need to be performed:
+## Description
+This FeatureCloud app implements a federated cox proportional hazards model based on the lifelines library. It implements the WebDisco approach: 
 
-1. Run controller-frontend, controller and global-API.
-2. Open frontend page: https://localhost:4200/app-test.
-3. Determine the docker image name (app_name:version), the number of clients, and the directory containing the files for each simulated site.
-4. Press start button to create multiple docker containers simulating the different sites and to test the federated Cox model.
+https://pubmed.ncbi.nlm.nih.gov/26159465/
+
+## Input
+Input can be specified through the app frontend. There is no config file or input data required upfront.
+
+1. File upload
+2. File type (CSV or TSV)
+3. Define duration and event columns name
+4. Define max number of iterations and convergence criterium
+5. Use only the intersection of covariates of all clients (makes computation more rubust, as only features are used that exist on all clients)
+6. Use a penalized regression
+7. If using penalized regression select which one (Lasso, Ridge, Elastic Net)
+8. If using penalized regression select penalizer and l1-ratio
+
+## Output
+Output can be downloaded through the app frontend.
+
+## Workflows
+This is a standalone app. It is not compatible with other apps.
+
+## Config
+No config file needed, everything can be adjusted through the app frontend.
+
+## Privacy
+- No patient-level data is exchanged (more infos: https://pubmed.ncbi.nlm.nih.gov/26159465/)
+- Exchanges:
+  - Mean and Variance of each Feature
+  - Event times
+  - Number of samples
+  - Summary statistics   
+- No additional privacy-enhancing techniques implemented yet
