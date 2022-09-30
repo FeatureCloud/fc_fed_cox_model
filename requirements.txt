@@ -1,6 +1,6 @@
 pandas==1.1.4
 lifelines==0.25.6
-numpy==1.21.0
+numpy==1.22.0
 scipy==1.5.4
 matplotlib==3.3.2
 autograd==1.3
